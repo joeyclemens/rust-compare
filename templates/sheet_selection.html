@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Select Sheets - Excel Comparison Tool</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <style>
+        select {
+            -webkit-appearance: none;
+            -moz-appearance: none;
+            appearance: none;
+            padding-right: 2.5rem; /* Space for custom arrow */
+            border: 1px solid #d1d5db; /* Gray-300 */
+            border-radius: 0.375rem; /* rounded-lg */
+            background-color: #ffffff;
+            color: #374151; /* Gray-700 */
+            height: 3rem; /* Consistent height */
+            font-size: 1rem; /* Base font size */
+            line-height: 1.5; /* For vertical centering */
+            transition: all 0.15s ease-in-out;
+        }
+
+        select:focus {
+            outline: none;
+            border-color: #3b82f6; /* Blue-500 */
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.25); /* Focus ring */
+        }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen">
+    <div class="container mx-auto px-4 py-8">
+        <div class="max-w-4xl mx-auto">
+            <h1 class="text-3xl font-bold text-center mb-8">Select Sheets to Compare</h1>
+            
+            <div class="bg-white rounded-lg shadow-md p-6">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <!-- First File Sheets -->
+                    <div>
+                        <h2 class="text-xl font-semibold mb-4">First File Sheets</h2>
+                        <div id="file1Filename" class="mb-2 text-sm text-gray-700 font-bold"></div>
+                        <div class="relative">
+                            <select id="file1Select" class="w-full p-3 border border-gray-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                                <option value="">Select a sheet...</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- Second File Sheets -->
+                    <div>
+                        <h2 class="text-xl font-semibold mb-4">Second File Sheets</h2>
+                        <div id="file2Filename" class="mb-2 text-sm text-gray-700 font-bold"></div>
+                        <div class="relative">
+                            <select id="file2Select" class="w-full p-3 border border-gray-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                                <option value="">Select a sheet...</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="mt-8">
+                    <button id="compareBtn" class="w-full bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed" disabled>
+                        Compare Selected Sheets
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const file1Select = document.getElementById('file1Select');
+        const file2Select = document.getElementById('file2Select');
+        const compareBtn = document.getElementById('compareBtn');
+
+        let selectedSheets = {
+            file1: null,
+            file2: null
+        };
+
+        let file1Filename = '';
+        let file2Filename = '';
+
+        function populateSelect(select, sheets, fileKey) {
+            sheets.forEach(sheet => {
+                const option = document.createElement('option');
+                option.value = sheet;
+                option.textContent = sheet;
+                select.appendChild(option);
+            });
+
+            select.addEventListener('change', () => {
+                selectedSheets[fileKey] = select.value;
+                checkCompareButton();
+            });
+        }
+
+        function checkCompareButton() {
+            compareBtn.disabled = !(selectedSheets.file1 && selectedSheets.file2);
+        }
+
+        // Fetch uploaded files data from the server
+        fetch('/uploaded-files')
+            .then(response => response.json())
+            .then(data => {
+                if (data.file1) {
+                    file1Filename = data.file1.filename;
+                    document.getElementById('file1Filename').textContent = data.file1.filename;
+                    populateSelect(file1Select, data.file1.sheets, 'file1');
+                }
+                if (data.file2) {
+                    file2Filename = data.file2.filename;
+                    document.getElementById('file2Filename').textContent = data.file2.filename;
+                    populateSelect(file2Select, data.file2.sheets, 'file2');
+                }
+            })
+            .catch(error => {
+                console.error('Error fetching files:', error);
+            });
+
+        // Compare button handler
+        compareBtn.addEventListener('click', () => {
+            if (selectedSheets.file1 && selectedSheets.file2) {
+                // Send selected sheets to server
+                fetch('/select-sheets', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        file1_filename: file1Filename,
+                        file1_sheet: selectedSheets.file1,
+                        file2_filename: file2Filename,
+                        file2_sheet: selectedSheets.file2
+                    })
+                })
+                .then(response => {
+                    if (response.ok) {
+                        window.location.href = '/column-matching';
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                });
+            }
+        });
+    </script>
+</body>
+</html> 

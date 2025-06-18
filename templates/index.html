@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Upload Excel Files</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <style>
+        /* Existing styles for drop-zone, file-info-box, etc. */
+        .drop-zone {
+            border: 2px dashed #cbd5e1;
+            background-color: #f8fafc;
+            transition: all 0.2s ease-in-out;
+        }
+        .drop-zone.highlight {
+            background-color: #e0f2fe; /* Light blue on drag over */
+            border-color: #60a5fa; /* Blue-500 */
+        }
+        .file-info-box {
+            border: 1px solid #d1fae5; /* Green-200 */
+            background-color: #ecfdf5; /* Green-50 */
+            color: #065f46; /* Green-800 */
+        }
+        .file-info-box.error {
+            border: 1px solid #fecaca; /* Red-200 */
+            background-color: #fee2e2; /* Red-50 */
+            color: #991b1b; /* Red-800 */
+        }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen">
+    <div class="container mx-auto px-4 py-8">
+        <div class="max-w-2xl mx-auto">
+            <h1 class="text-3xl font-bold text-center mb-8">Excel File Comparison Tool</h1>
+            
+            <div class="bg-white rounded-lg shadow-md p-6">
+                <div class="mb-6">
+                    <h2 class="text-xl font-semibold mb-4">Upload First Excel File</h2>
+                    <div class="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center" id="dropZone1">
+                        <input type="file" id="file1" class="hidden" accept=".xlsx,.xls">
+                        <label for="file1" class="cursor-pointer">
+                            <div class="text-gray-600">
+                                <svg class="mx-auto h-12 w-12 text-green-600" fill="currentColor" viewBox="0 0 48 48">
+                                    <rect x="8" y="8" width="32" height="32" rx="4" fill="#22c55e"/>
+                                    <text x="24" y="32" text-anchor="middle" font-size="20" fill="white" font-family="Arial, Helvetica, sans-serif" font-weight="bold">X</text>
+                                </svg>
+                                <p class="mt-1">Click to upload or drag and drop</p>
+                                <p class="text-sm text-gray-500">Excel files only (.xlsx, .xls)</p>
+                            </div>
+                        </label>
+                    </div>
+                    <div id="file1Info" class="mt-2 text-sm text-green-800 bg-green-100 border border-green-300 rounded flex items-center px-3 py-2 space-x-2" style="display:none;">
+                        <svg class="h-5 w-5 text-green-600" fill="currentColor" viewBox="0 0 20 20"><rect x="3" y="3" width="14" height="14" rx="2" fill="#22c55e"/><text x="10" y="15" text-anchor="middle" font-size="10" fill="white" font-family="Arial, Helvetica, sans-serif" font-weight="bold">X</text></svg>
+                        <span id="file1Name"></span>
+                    </div>
+                </div>
+
+                <div class="mb-6">
+                    <h2 class="text-xl font-semibold mb-4">Upload Second Excel File</h2>
+                    <div class="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center" id="dropZone2">
+                        <input type="file" id="file2" class="hidden" accept=".xlsx,.xls">
+                        <label for="file2" class="cursor-pointer">
+                            <div class="text-gray-600">
+                                <svg class="mx-auto h-12 w-12 text-green-600" fill="currentColor" viewBox="0 0 48 48">
+                                    <rect x="8" y="8" width="32" height="32" rx="4" fill="#22c55e"/>
+                                    <text x="24" y="32" text-anchor="middle" font-size="20" fill="white" font-family="Arial, Helvetica, sans-serif" font-weight="bold">X</text>
+                                </svg>
+                                <p class="mt-1">Click to upload or drag and drop</p>
+                                <p class="text-sm text-gray-500">Excel files only (.xlsx, .xls)</p>
+                            </div>
+                        </label>
+                    </div>
+                    <div id="file2Info" class="mt-2 text-sm text-green-800 bg-green-100 border border-green-300 rounded flex items-center px-3 py-2 space-x-2" style="display:none;">
+                        <svg class="h-5 w-5 text-green-600" fill="currentColor" viewBox="0 0 20 20"><rect x="3" y="3" width="14" height="14" rx="2" fill="#22c55e"/><text x="10" y="15" text-anchor="middle" font-size="10" fill="white" font-family="Arial, Helvetica, sans-serif" font-weight="bold">X</text></svg>
+                        <span id="file2Name"></span>
+                    </div>
+                </div>
+
+                <button id="continueBtn" class="w-full bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed" disabled>
+                    Continue to Sheet Selection
+                </button>
+            </div>
+        </div>
+
+    <script>
+        const file1 = document.getElementById('file1');
+        const file2 = document.getElementById('file2');
+        const file1Info = document.getElementById('file1Info');
+        const file2Info = document.getElementById('file2Info');
+        const continueBtn = document.getElementById('continueBtn');
+
+        let uploadedFiles = {
+            file1: null,
+            file2: null
+        };
+
+        function handleFileSelect(file, fileInfo, fileKey) {
+            if (file) {
+                const formData = new FormData();
+                formData.append('file', file);
+
+                fetch('/upload', {
+                    method: 'POST',
+                    body: formData
+                })
+                .then(response => {
+                    if (!response.ok) throw new Error('Upload failed');
+                    return response.json();
+                })
+                .then(data => {
+                    fileInfo.style.display = 'flex';
+                    const nameSpan = fileInfo.querySelector('span');
+                    nameSpan.textContent = `File: ${data.filename} (${data.sheets.length} sheets)`;
+                    fileInfo.classList.remove('bg-red-100', 'text-red-800', 'border-red-300');
+                    fileInfo.classList.add('bg-green-100', 'text-green-800', 'border-green-300');
+                    uploadedFiles[fileKey] = data;
+                    checkContinueButton();
+                })
+                .catch(error => {
+                    fileInfo.style.display = 'flex';
+                    const nameSpan = fileInfo.querySelector('span');
+                    nameSpan.textContent = 'Error uploading file';
+                    fileInfo.classList.remove('bg-green-100', 'text-green-800', 'border-green-300');
+                    fileInfo.classList.add('bg-red-100', 'text-red-800', 'border-red-300');
+                    uploadedFiles[fileKey] = null;
+                    checkContinueButton();
+                });
+            }
+        }
+
+        function checkContinueButton() {
+            continueBtn.disabled = !(uploadedFiles.file1 && uploadedFiles.file2);
+        }
+
+        // File input change handlers
+        file1.addEventListener('change', (e) => {
+            handleFileSelect(e.target.files[0], file1Info, 'file1');
+        });
+
+        file2.addEventListener('change', (e) => {
+            handleFileSelect(e.target.files[0], file2Info, 'file2');
+        });
+
+        // Drag and drop handlers
+        [dropZone1, dropZone2].forEach((zone, index) => {
+            zone.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                zone.classList.add('border-blue-500');
+            });
+
+            zone.addEventListener('dragleave', () => {
+                zone.classList.remove('border-blue-500');
+            });
+
+            zone.addEventListener('drop', (e) => {
+                e.preventDefault();
+                zone.classList.remove('border-blue-500');
+                const file = e.dataTransfer.files[0];
+                if (file) {
+                    const fileInput = document.getElementById(`file${index + 1}`);
+                    fileInput.files = e.dataTransfer.files;
+                    handleFileSelect(file, document.getElementById(`file${index + 1}Info`), `file${index + 1}`);
+                }
+            });
+        });
+
+        // Continue button handler
+        continueBtn.addEventListener('click', () => {
+            if (uploadedFiles.file1 && uploadedFiles.file2) {
+                window.location.href = '/sheet-selection';
+            }
+        });
+    </script>
+</body>
+</html> 

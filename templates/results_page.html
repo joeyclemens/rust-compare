@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Comparison Results</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        .chart-container {
+            position: relative;
+            height: 250px;
+            width: 250px;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen">
+    <div class="container mx-auto px-4 py-6">
+        <div class="bg-white rounded-lg shadow-lg p-6">
+            <h1 class="text-2xl font-bold text-gray-800 mb-4">Comparison Results</h1>
+            
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <!-- Summary Statistics -->
+                <div class="bg-gray-50 rounded-lg p-4">
+                    <h2 class="text-lg font-semibold text-gray-700 mb-3">Summary Statistics</h2>
+                    <div class="space-y-2">
+                        <div class="flex justify-between items-center">
+                            <span class="text-gray-600 text-sm">Matching Rows:</span>
+                            <span class="font-semibold" id="matchCount">0</span>
+                        </div>
+                        <div class="flex justify-between items-center">
+                            <span class="text-gray-600 text-sm">Rows Unique to File 1:</span>
+                            <span class="font-semibold" id="leftOnlyCount">0</span>
+                        </div>
+                        <div class="flex justify-between items-center">
+                            <span class="text-gray-600 text-sm">Rows Unique to File 2:</span>
+                            <span class="font-semibold" id="rightOnlyCount">0</span>
+                        </div>
+                        <div class="flex justify-between items-center">
+                            <span class="text-gray-600 text-sm">Total Rows:</span>
+                            <span class="font-semibold" id="totalRows">0</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Distribution Chart -->
+                <div class="bg-gray-50 rounded-lg p-4">
+                    <h2 class="text-lg font-semibold text-gray-700 mb-3">Row Distribution</h2>
+                    <div class="chart-container mx-auto">
+                        <canvas id="distributionChart"></canvas>
+                    </div>
+                </div>
+
+                <!-- Output File Information -->
+                <div class="bg-gray-50 rounded-lg p-4">
+                    <h2 class="text-lg font-semibold text-gray-700 mb-3">Output File</h2>
+                    <div class="space-y-2">
+                        <div class="bg-white p-3 rounded shadow-sm">
+                            <p class="text-gray-500 text-sm break-all">
+                                <span class="font-medium text-gray-700">Location:</span><br>
+                                <span id="outputPath" class="text-xs font-mono bg-gray-50 p-1 rounded mt-1 block"></span>
+                            </p>
+                        </div>
+                        <button onclick="openOutputFile()" class="w-full bg-green-500 hover:bg-green-600 text-white font-semibold py-2 px-4 rounded-lg transition duration-200 flex items-center justify-center">
+                            <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+                            </svg>
+                            Open File
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- File Information -->
+            <div class="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div class="bg-gray-50 rounded-lg p-4">
+                    <h3 class="text-lg font-medium text-gray-600 mb-2">File 1</h3>
+                    <div class="space-y-1">
+                        <p class="text-gray-500 text-sm break-all">
+                            <span class="font-medium text-gray-700">Filename:</span><br>
+                            <span id="file1Name"></span>
+                        </p>
+                        <p class="text-gray-500 text-sm">
+                            <span class="font-medium text-gray-700">Sheet:</span><br>
+                            <span id="file1Sheet"></span>
+                        </p>
+                    </div>
+                </div>
+                <div class="bg-gray-50 rounded-lg p-4">
+                    <h3 class="text-lg font-medium text-gray-600 mb-2">File 2</h3>
+                    <div class="space-y-1">
+                        <p class="text-gray-500 text-sm break-all">
+                            <span class="font-medium text-gray-700">Filename:</span><br>
+                            <span id="file2Name"></span>
+                        </p>
+                        <p class="text-gray-500 text-sm">
+                            <span class="font-medium text-gray-700">Sheet:</span><br>
+                            <span id="file2Sheet"></span>
+                        </p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Action Button -->
+            <div class="mt-4 flex justify-start">
+                <button onclick="window.location.href='/'" class="bg-blue-500 hover:bg-blue-600 text-white font-semibold py-2 px-6 rounded-lg transition duration-200">
+                    Start New Comparison
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Get the comparison results from the URL parameters
+        const urlParams = new URLSearchParams(window.location.search);
+        const results = JSON.parse(decodeURIComponent(urlParams.get('results')));
+
+        // Update summary statistics
+        document.getElementById('matchCount').textContent = results.match_count;
+        document.getElementById('leftOnlyCount').textContent = results.left_only_count;
+        document.getElementById('rightOnlyCount').textContent = results.right_only_count;
+        document.getElementById('totalRows').textContent = results.total_rows;
+
+        // Update file information
+        document.getElementById('file1Name').textContent = results.file1_filename;
+        document.getElementById('file1Sheet').textContent = results.file1_sheet;
+        document.getElementById('file2Name').textContent = results.file2_filename;
+        document.getElementById('file2Sheet').textContent = results.file2_sheet;
+        // Ensure we're using the full path
+        const outputPath = results.output_path.replace(/\\/g, '/'); // Normalize path separators
+        document.getElementById('outputPath').textContent = outputPath;
+
+        // Create distribution chart
+        const ctx = document.getElementById('distributionChart').getContext('2d');
+        new Chart(ctx, {
+            type: 'pie',
+            data: {
+                labels: ['Matching Rows', 'Unique to File 1', 'Unique to File 2'],
+                datasets: [{
+                    data: [
+                        results.match_count,
+                        results.left_only_count,
+                        results.right_only_count
+                    ],
+                    backgroundColor: [
+                        'rgba(46, 204, 113, 0.8)',  // Fresh Green
+                        'rgba(52, 152, 219, 0.8)',  // Bright Blue
+                        'rgba(155, 89, 182, 0.8)'   // Vibrant Purple
+                    ],
+                    borderColor: [
+                        'rgb(46, 204, 113)',
+                        'rgb(52, 152, 219)',
+                        'rgb(155, 89, 182)'
+                    ],
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        position: 'bottom',
+                        labels: {
+                            boxWidth: 12,
+                            font: {
+                                size: 11
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        function openOutputFile() {
+            fetch(`/open-file?path=${encodeURIComponent(results.output_path)}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (!data.success) {
+                        alert(data.error || 'Failed to open file');
+                    }
+                })
+                .catch(error => {
+                    alert('Failed to open file: ' + error);
+                });
+        }
+    </script>
+</body>
+</html> 

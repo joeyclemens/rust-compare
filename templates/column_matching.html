@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Match Columns - Excel Comparison Tool</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <style>
+        .match-group {
+            background-color: #ffffff;
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 16px;
+            box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1);
+            transition: box-shadow 0.2s ease;
+        }
+        
+        .match-group:hover {
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+        
+        .select-wrapper {
+            position: relative;
+        }
+        
+        .select-wrapper::after {
+            content: '';
+            position: absolute;
+            right: 12px;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 0;
+            height: 0;
+            border-left: 5px solid transparent;
+            border-right: 5px solid transparent;
+            border-top: 6px solid #6b7280;
+            pointer-events: none;
+        }
+        
+        select {
+            -webkit-appearance: none;
+            -moz-appearance: none;
+            appearance: none;
+            padding-right: 2.5rem;
+            border: 1px solid #d1d5db; /* Gray-300 */
+            border-radius: 0.375rem; /* rounded-lg */
+            background-color: #ffffff;
+            color: #374151; /* Gray-700 */
+            height: 3rem; /* Consistent height */
+            font-size: 1rem; /* Base font size */
+            line-height: 1.5; /* For vertical centering */
+            transition: all 0.15s ease-in-out;
+        }
+        
+        select:focus {
+            outline: none;
+            border-color: #3b82f6;
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+        }
+        
+        .btn-primary {
+            background-color: #3b82f6;
+            transition: background-color 0.2s ease;
+        }
+        
+        .btn-primary:hover:not(:disabled) {
+            background-color: #2563eb;
+        }
+        
+        .btn-secondary {
+            background-color: #10b981;
+            transition: background-color 0.2s ease;
+        }
+        
+        .btn-secondary:hover {
+            background-color: #059669;
+        }
+        
+        .remove-btn {
+            color: #ef4444;
+            transition: color 0.2s ease;
+        }
+        
+        .remove-btn:hover {
+            color: #dc2626;
+        }
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+    <div class="container mx-auto px-6 py-8">
+        <div class="max-w-6xl mx-auto bg-white rounded-lg shadow-sm border border-gray-200 p-8">
+            <h1 class="text-3xl font-bold text-center text-gray-900 mb-8">Match Columns Between Files</h1>
+            
+            <!-- Headers for the columns, now horizontally aligned -->
+            <div class="flex justify-around items-center mb-6">
+                <h2 class="text-xl font-semibold text-gray-700 flex items-center">
+                    <svg class="w-5 h-5 mr-2 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                    First File Columns
+                </h2>
+                <h2 class="text-xl font-semibold text-gray-700 flex items-center">
+                    <svg class="w-5 h-5 mr-2 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                    Second File Columns
+                </h2>
+            </div>
+
+            <!-- Container for the actual column matches -->
+            <div id="columnMatchesContainer" class="space-y-4">
+                <!-- Column matches will be populated here by JavaScript -->
+            </div>
+
+            <div class="mt-8 flex flex-col sm:flex-row justify-between items-center gap-4">
+                <button id="addMatchBtn" class="btn-secondary text-white font-medium py-2 px-4 rounded-md hover:shadow-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-opacity-50">
+                    Add Column Match
+                </button>
+                <button id="compareBtn" class="btn-primary text-white font-medium py-2 px-6 rounded-md hover:shadow-sm disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50" disabled>
+                    Summary
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const addMatchBtn = document.getElementById('addMatchBtn');
+        const compareBtn = document.getElementById('compareBtn');
+
+        let columnMatches = [];
+        let file1Headers = [];
+        let file2Headers = [];
+
+        fetch('/column-headers')
+            .then(response => response.json())
+            .then(data => {
+                file1Headers = data.file1_headers;
+                file2Headers = data.file2_headers;
+                createColumnMatch();
+            })
+            .catch(error => {
+                console.error('Error fetching headers:', error);
+                alert('Could not load column headers. Please ensure files are uploaded and sheets are selected.');
+            });
+
+        function createColumnMatch() {
+            const matchId = Date.now();
+            const matchGroupDiv = document.createElement('div');
+            matchGroupDiv.className = 'match-group flex items-center space-x-4';
+            matchGroupDiv.innerHTML = `
+                <div class="select-wrapper flex-1">
+                    <select class="w-full py-2 px-3 border border-gray-300 rounded-md bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                        <option value="">Select column...</option>
+                        ${file1Headers.map(header => `<option value="${header}">${header}</option>`).join('')}
+                    </select>
+                </div>
+                <span class="text-gray-500 font-medium text-sm">matches</span>
+                <div class="select-wrapper flex-1">
+                    <select class="w-full py-2 px-3 border border-gray-300 rounded-md bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                        <option value="">Select column...</option>
+                        ${file2Headers.map(header => `<option value="${header}">${header}</option>`).join('')}
+                    </select>
+                </div>
+                <button class="remove-btn hover:bg-red-50 p-2 rounded focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-opacity-50" onclick="removeMatch('${matchId}')">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                </button>
+            `;
+
+            const selects = matchGroupDiv.querySelectorAll('select');
+            selects[0].addEventListener('change', () => updateMatches());
+            selects[1].addEventListener('change', () => updateMatches());
+
+            document.getElementById('columnMatchesContainer').appendChild(matchGroupDiv);
+
+            columnMatches.push({
+                id: matchId,
+                element: matchGroupDiv,
+                file1Select: selects[0],
+                file2Select: selects[1]
+            });
+
+            updateMatches();
+        }
+
+        function removeMatch(matchId) {
+            const numericMatchId = Number(matchId);
+            const matchIndex = columnMatches.findIndex(match => match.id === numericMatchId);
+            if (matchIndex !== -1) {
+                columnMatches[matchIndex].element.remove();
+                columnMatches.splice(matchIndex, 1);
+                updateMatches();
+            }
+        }
+
+        function updateMatches() {
+            const matches = columnMatches.map(match => ({
+                file1_column: match.file1Select.value,
+                file2_column: match.file2Select.value
+            })).filter(match => match.file1_column && match.file2_column);
+
+            compareBtn.disabled = matches.length === 0;
+
+            window.columnMatches = matches;
+        }
+
+        addMatchBtn.addEventListener('click', createColumnMatch);
+
+        compareBtn.addEventListener('click', () => {
+            if (window.columnMatches && window.columnMatches.length > 0) {
+                console.log('Column matches:', window.columnMatches);
+
+                fetch('/save-column-matches', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(window.columnMatches),
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        window.location.href = '/summary'; // Redirect to the new summary page
+                    } else {
+                        alert('Error saving column matches: ' + data.message);
+                    }
+                })
+                .catch(error => {
+                    console.error('Error sending column matches:', error);
+                    alert('An error occurred while saving column matches.');
+                });
+
+            } else {
+                alert('Please select at least one column match to compare.');
+            }
+        });
+    </script>
+</body>
+</html>
