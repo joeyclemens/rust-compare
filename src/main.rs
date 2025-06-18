@@ -10,6 +10,8 @@ use calamine::{Reader, Xlsx};
 use rust_xlsxwriter::{Workbook, Format, FormatBorder, FormatAlign};
 use itertools::Itertools;
 use webbrowser;
+use rfd::FileDialog;
+use open;
 
 // Structure to store uploaded file information
 #[derive(Default)]
@@ -74,11 +76,33 @@ struct ComparisonResult {
     right_only_count: usize,
     total_rows: usize,
     output_path: String,
+    file1_filename: String,
+    file1_sheet: String,
+    file2_filename: String,
+    file2_sheet: String,
 }
 
 #[derive(Serialize)]
 struct ComparisonError {
     error: String,
+}
+
+#[derive(Deserialize)]
+struct ComparisonRequest {
+    save_location: Option<String>,
+    output_filename: Option<String>,
+}
+
+#[derive(Serialize)]
+struct DirectoryResponse {
+    path: Option<String>,
+    error: Option<String>,
+}
+
+#[derive(Serialize)]
+struct OpenFileResponse {
+    success: bool,
+    error: Option<String>,
 }
 
 async fn index() -> impl Responder {
@@ -96,6 +120,11 @@ async fn column_matching() -> impl Responder {
 // New route for the summary page
 async fn summary_page() -> impl Responder {
     HttpResponse::Ok().body(include_str!("../templates/summary_page.html"))
+}
+
+// Add new route for results page
+async fn results_page() -> impl Responder {
+    HttpResponse::Ok().body(include_str!("../templates/results_page.html"))
 }
 
 async fn get_uploaded_files(state: web::Data<AppState>) -> impl Responder {
@@ -252,46 +281,79 @@ async fn upload_file(
             }
             Err(e) => {
                 log::error!("Failed to parse Excel file '{}': {}", filename, e);
+                return Ok(HttpResponse::BadRequest().json(serde_json::json!({
+                    "error": format!("Failed to parse Excel file: {}", e)
+                })));
             }
         }
     }
     if !found_field {
         log::error!("No fields found in multipart payload");
+        return Ok(HttpResponse::BadRequest().json(serde_json::json!({
+            "error": "No file was uploaded"
+        })));
     }
     log::error!("No valid Excel file found in upload");
-    Ok(HttpResponse::BadRequest().body("Failed to process file"))
+    Ok(HttpResponse::BadRequest().json(serde_json::json!({
+        "error": "Failed to process file"
+    })))
 }
 
 // New endpoint to perform the comparison
-async fn perform_comparison(state: web::Data<AppState>) -> impl Responder {
+async fn perform_comparison(
+    state: web::Data<AppState>,
+    req: web::Json<ComparisonRequest>,
+) -> impl Responder {
+    log::info!("Starting comparison process");
     let selected_sheets = state.selected_sheets.lock().unwrap();
     let column_matches = state.column_matches.lock().unwrap();
     let file_data = state.file_data.lock().unwrap();
 
     if let Some(((file1_filename, file1_sheet), (file2_filename, file2_sheet))) = selected_sheets.as_ref() {
+        log::info!("Selected sheets: File1={} ({}), File2={} ({})", 
+            file1_filename, file1_sheet, file2_filename, file2_sheet);
+
         // Get the data for both files
         let file1_data = match file_data.get(file1_filename) {
             Some(sheet_map) => match sheet_map.get(file1_sheet) {
-                Some(rows) => rows,
-                None => return HttpResponse::BadRequest().json(ComparisonError { 
-                    error: format!("Sheet {} not found in file {}", file1_sheet, file1_filename) 
-                }),
+                Some(rows) => {
+                    log::info!("Found {} rows in file1", rows.len());
+                    rows
+                },
+                None => {
+                    log::error!("Sheet {} not found in file {}", file1_sheet, file1_filename);
+                    return HttpResponse::BadRequest().json(ComparisonError { 
+                        error: format!("Sheet {} not found in file {}", file1_sheet, file1_filename) 
+                    });
+                },
             },
-            None => return HttpResponse::BadRequest().json(ComparisonError { 
-                error: format!("File {} not found", file1_filename) 
-            }),
+            None => {
+                log::error!("File {} not found", file1_filename);
+                return HttpResponse::BadRequest().json(ComparisonError { 
+                    error: format!("File {} not found", file1_filename) 
+                });
+            },
         };
 
         let file2_data = match file_data.get(file2_filename) {
             Some(sheet_map) => match sheet_map.get(file2_sheet) {
-                Some(rows) => rows,
-                None => return HttpResponse::BadRequest().json(ComparisonError { 
-                    error: format!("Sheet {} not found in file {}", file2_sheet, file2_filename) 
-                }),
+                Some(rows) => {
+                    log::info!("Found {} rows in file2", rows.len());
+                    rows
+                },
+                None => {
+                    log::error!("Sheet {} not found in file {}", file2_sheet, file2_filename);
+                    return HttpResponse::BadRequest().json(ComparisonError { 
+                        error: format!("Sheet {} not found in file {}", file2_sheet, file2_filename) 
+                    });
+                },
             },
-            None => return HttpResponse::BadRequest().json(ComparisonError { 
-                error: format!("File {} not found", file2_filename) 
-            }),
+            None => {
+                log::error!("File {} not found", file2_filename);
+                return HttpResponse::BadRequest().json(ComparisonError { 
+                    error: format!("File {} not found", file2_filename) 
+                });
+            },
         };
 
         // Get headers from both files
@@ -321,7 +383,6 @@ async fn perform_comparison(state: web::Data<AppState>) -> impl Responder {
             .set_font_color("#FFFFFF")
             .set_font_name("General Sans")
             .set_font_size(12)
-            .set_border(FormatBorder::Thin)
             .set_align(FormatAlign::Center)
             .set_align(FormatAlign::VerticalCenter)
             .set_text_wrap();
@@ -329,14 +390,12 @@ async fn perform_comparison(state: web::Data<AppState>) -> impl Responder {
         let body_format = Format::new()
             .set_font_name("General Sans")
             .set_font_size(9)
-            .set_border(FormatBorder::Thin)
             .set_align(FormatAlign::VerticalCenter)
             .set_text_wrap();
 
         let number_format = Format::new()
             .set_font_name("General Sans")
             .set_font_size(9)
-            .set_border(FormatBorder::Thin)
             .set_align(FormatAlign::VerticalCenter)
             .set_text_wrap()
             .set_num_format("#,##0");
@@ -344,7 +403,6 @@ async fn perform_comparison(state: web::Data<AppState>) -> impl Responder {
         let currency_format = Format::new()
             .set_font_name("General Sans")
             .set_font_size(9)
-            .set_border(FormatBorder::Thin)
             .set_align(FormatAlign::VerticalCenter)
             .set_text_wrap()
             .set_num_format("£#,##0.00");
@@ -459,36 +517,46 @@ async fn perform_comparison(state: web::Data<AppState>) -> impl Responder {
             // Write file1 data
             for header in file1_headers {
                 if let Some(&idx) = file1_col_indices.get(header) {
-                    let value = &row[idx];
+                    let value = if status == "right_only" {
+                        // Leave empty for rows unique to file2
+                        ""
+                    } else {
+                        &row[idx]
+                    };
+                    
                     if is_quantity_column(header) {
-                        if let Ok(num) = value.parse::<f64>() {
-                            if let Err(e) = sheet.write_number_with_format(row_index, col, num, &number_format) {
-                                return HttpResponse::InternalServerError().json(ComparisonError { 
-                                    error: format!("Failed to write data: {}", e) 
-                                });
-                            }
-                        } else {
-                            if let Err(e) = sheet.write_string_with_format(row_index, col, value, &body_format) {
-                                return HttpResponse::InternalServerError().json(ComparisonError { 
-                                    error: format!("Failed to write data: {}", e) 
-                                });
+                        if !value.is_empty() {
+                            if let Ok(num) = value.parse::<f64>() {
+                                if let Err(e) = sheet.write_number_with_format(row_index, col, num, &number_format) {
+                                    return HttpResponse::InternalServerError().json(ComparisonError { 
+                                        error: format!("Failed to write data: {}", e) 
+                                    });
+                                }
+                            } else {
+                                if let Err(e) = sheet.write_string_with_format(row_index, col, value, &body_format) {
+                                    return HttpResponse::InternalServerError().json(ComparisonError { 
+                                        error: format!("Failed to write data: {}", e) 
+                                    });
+                                }
                             }
                         }
                     } else if is_cost_column(header) {
-                        if let Ok(num) = value.parse::<f64>() {
-                            if let Err(e) = sheet.write_number_with_format(row_index, col, num, &currency_format) {
-                                return HttpResponse::InternalServerError().json(ComparisonError { 
-                                    error: format!("Failed to write data: {}", e) 
-                                });
-                            }
-                        } else {
-                            if let Err(e) = sheet.write_string_with_format(row_index, col, value, &body_format) {
-                                return HttpResponse::InternalServerError().json(ComparisonError { 
-                                    error: format!("Failed to write data: {}", e) 
-                                });
+                        if !value.is_empty() {
+                            if let Ok(num) = value.parse::<f64>() {
+                                if let Err(e) = sheet.write_number_with_format(row_index, col, num, &currency_format) {
+                                    return HttpResponse::InternalServerError().json(ComparisonError { 
+                                        error: format!("Failed to write data: {}", e) 
+                                    });
+                                }
+                            } else {
+                                if let Err(e) = sheet.write_string_with_format(row_index, col, value, &body_format) {
+                                    return HttpResponse::InternalServerError().json(ComparisonError { 
+                                        error: format!("Failed to write data: {}", e) 
+                                    });
+                                }
                             }
                         }
-                    } else {
+                    } else if !value.is_empty() {
                         if let Err(e) = sheet.write_string_with_format(row_index, col, value, &body_format) {
                             return HttpResponse::InternalServerError().json(ComparisonError { 
                                 error: format!("Failed to write data: {}", e) 
@@ -502,36 +570,46 @@ async fn perform_comparison(state: web::Data<AppState>) -> impl Responder {
             // Write file2 data
             for header in file2_headers {
                 if let Some(&idx) = file2_col_indices.get(header) {
-                    let value = &row[idx];
+                    let value = if status == "left_only" {
+                        // Leave empty for rows unique to file1
+                        ""
+                    } else {
+                        &row[idx]
+                    };
+                    
                     if is_quantity_column(header) {
-                        if let Ok(num) = value.parse::<f64>() {
-                            if let Err(e) = sheet.write_number_with_format(row_index, col, num, &number_format) {
-                                return HttpResponse::InternalServerError().json(ComparisonError { 
-                                    error: format!("Failed to write data: {}", e) 
-                                });
-                            }
-                        } else {
-                            if let Err(e) = sheet.write_string_with_format(row_index, col, value, &body_format) {
-                                return HttpResponse::InternalServerError().json(ComparisonError { 
-                                    error: format!("Failed to write data: {}", e) 
-                                });
+                        if !value.is_empty() {
+                            if let Ok(num) = value.parse::<f64>() {
+                                if let Err(e) = sheet.write_number_with_format(row_index, col, num, &number_format) {
+                                    return HttpResponse::InternalServerError().json(ComparisonError { 
+                                        error: format!("Failed to write data: {}", e) 
+                                    });
+                                }
+                            } else {
+                                if let Err(e) = sheet.write_string_with_format(row_index, col, value, &body_format) {
+                                    return HttpResponse::InternalServerError().json(ComparisonError { 
+                                        error: format!("Failed to write data: {}", e) 
+                                    });
+                                }
                             }
                         }
                     } else if is_cost_column(header) {
-                        if let Ok(num) = value.parse::<f64>() {
-                            if let Err(e) = sheet.write_number_with_format(row_index, col, num, &currency_format) {
-                                return HttpResponse::InternalServerError().json(ComparisonError { 
-                                    error: format!("Failed to write data: {}", e) 
-                                });
-                            }
-                        } else {
-                            if let Err(e) = sheet.write_string_with_format(row_index, col, value, &body_format) {
-                                return HttpResponse::InternalServerError().json(ComparisonError { 
-                                    error: format!("Failed to write data: {}", e) 
-                                });
+                        if !value.is_empty() {
+                            if let Ok(num) = value.parse::<f64>() {
+                                if let Err(e) = sheet.write_number_with_format(row_index, col, num, &currency_format) {
+                                    return HttpResponse::InternalServerError().json(ComparisonError { 
+                                        error: format!("Failed to write data: {}", e) 
+                                    });
+                                }
+                            } else {
+                                if let Err(e) = sheet.write_string_with_format(row_index, col, value, &body_format) {
+                                    return HttpResponse::InternalServerError().json(ComparisonError { 
+                                        error: format!("Failed to write data: {}", e) 
+                                    });
+                                }
                             }
                         }
-                    } else {
+                    } else if !value.is_empty() {
                         if let Err(e) = sheet.write_string_with_format(row_index, col, value, &body_format) {
                             return HttpResponse::InternalServerError().json(ComparisonError { 
                                 error: format!("Failed to write data: {}", e) 
@@ -597,26 +675,115 @@ async fn perform_comparison(state: web::Data<AppState>) -> impl Responder {
             }
         }
 
+        // Determine output path
+        log::info!("Save location requested: {:?}", req.save_location);
+        let output_path = match req.save_location.as_ref() {
+            Some(path) if !path.trim().is_empty() => {
+                let path = std::path::Path::new(path.trim());
+                log::info!("Attempting to save to: {}", path.display());
+                
+                // Create parent directory if it doesn't exist
+                if let Some(parent) = path.parent() {
+                    if !parent.exists() {
+                        log::info!("Creating directory: {}", parent.display());
+                        if let Err(e) = std::fs::create_dir_all(parent) {
+                            log::error!("Failed to create directory: {}", e);
+                            return HttpResponse::InternalServerError().json(ComparisonError { 
+                                error: format!("Failed to create directory '{}': {}", parent.display(), e) 
+                            });
+                        }
+                    }
+                }
+
+                // Create the file
+                if let Err(e) = std::fs::File::create(path) {
+                    log::error!("Failed to create output file: {}", e);
+                    return HttpResponse::InternalServerError().json(ComparisonError { 
+                        error: format!("Failed to create output file '{}': {}", path.display(), e) 
+                    });
+                }
+                path.to_string_lossy().into_owned()
+            },
+            _ => {
+                let default_path = std::path::Path::new("comparison_output.xlsx");
+                log::info!("Using default save location: {}", default_path.display());
+                if let Err(e) = std::fs::File::create(default_path) {
+                    log::error!("Failed to create default output file: {}", e);
+                    return HttpResponse::InternalServerError().json(ComparisonError { 
+                        error: format!("Failed to create output file '{}': {}", default_path.display(), e) 
+                    });
+                }
+                default_path.to_string_lossy().into_owned()
+            },
+        };
+
         // Save the workbook
-        let output_path = "comparison_output.xlsx";
-        if let Err(e) = workbook.save(output_path) {
+        log::info!("Saving workbook to: {}", output_path);
+        if let Err(e) = workbook.save(&output_path) {
+            log::error!("Failed to save workbook: {}", e);
             return HttpResponse::InternalServerError().json(ComparisonError { 
-                error: format!("Failed to save workbook: {}", e) 
+                error: format!("Failed to save workbook to '{}': {}", output_path, e) 
             });
         }
+        log::info!("Workbook saved successfully");
 
         let result = ComparisonResult {
             match_count,
             left_only_count,
             right_only_count,
             total_rows: unique_rows.len(),
-            output_path: output_path.to_string(),
+            output_path,
+            file1_filename: file1_filename.clone(),
+            file1_sheet: file1_sheet.clone(),
+            file2_filename: file2_filename.clone(),
+            file2_sheet: file2_sheet.clone(),
         };
 
+        log::info!("Comparison completed successfully");
         HttpResponse::Ok().json(result)
     } else {
+        log::error!("No sheets selected for comparison");
         HttpResponse::BadRequest().json(ComparisonError { 
             error: "No sheets selected for comparison".to_string() 
+        })
+    }
+}
+
+// Update endpoint to use file save dialog
+async fn select_directory() -> impl Responder {
+    match FileDialog::new()
+        .set_title("Save Comparison File")
+        .add_filter("Excel Files", &["xlsx"])
+        .set_directory(std::env::current_dir().unwrap_or_default())
+        .save_file() {
+            Some(path) => HttpResponse::Ok().json(DirectoryResponse {
+                path: Some(path.to_string_lossy().into_owned()),
+                error: None,
+            }),
+            None => HttpResponse::Ok().json(DirectoryResponse {
+                path: None,
+                error: Some("No file selected".to_string()),
+            }),
+    }
+}
+
+// Add new endpoint to open file
+async fn open_output_file(path: web::Query<HashMap<String, String>>) -> impl Responder {
+    if let Some(file_path) = path.get("path") {
+        match open::that(file_path) {
+            Ok(_) => HttpResponse::Ok().json(OpenFileResponse {
+                success: true,
+                error: None,
+            }),
+            Err(e) => HttpResponse::InternalServerError().json(OpenFileResponse {
+                success: false,
+                error: Some(format!("Failed to open file: {}", e)),
+            }),
+        }
+    } else {
+        HttpResponse::BadRequest().json(OpenFileResponse {
+            success: false,
+            error: Some("No file path provided".to_string()),
         })
     }
 }
@@ -637,6 +804,7 @@ async fn main() -> std::io::Result<()> {
             .route("/sheet-selection", web::get().to(sheet_selection))
             .route("/column-matching", web::get().to(column_matching))
             .route("/summary", web::get().to(summary_page))
+            .route("/results", web::get().to(results_page))
             .route("/upload", web::post().to(upload_file))
             .route("/uploaded-files", web::get().to(get_uploaded_files))
             .route("/column-headers", web::get().to(get_column_headers))
@@ -644,6 +812,8 @@ async fn main() -> std::io::Result<()> {
             .route("/save-column-matches", web::post().to(save_column_matches))
             .route("/summary-data", web::get().to(get_summary_data))
             .route("/compare", web::post().to(perform_comparison))
+            .route("/select-directory", web::get().to(select_directory))
+            .route("/open-file", web::get().to(open_output_file))
     })
     .bind(("127.0.0.1", 8080))?
     .run();
